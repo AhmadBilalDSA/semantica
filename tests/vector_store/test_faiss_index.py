@@ -207,3 +207,70 @@ def test_add_vectors_retry_with_partial_overlap_only_adds_new_ids():
     second_call_vectors = backend_index.add.call_args[0][0]
     assert second_call_vectors.shape[0] == 1
     np.testing.assert_array_equal(second_call_vectors[0], np.array([7, 8, 9], dtype=np.float32))
+
+
+def test_faiss_index_save_load_roundtrip_with_metadata(tmp_path):
+    """Test that vector_ids and metadata persist across save/load."""
+    faiss = pytest.importorskip("faiss")
+    vectors = np.array(
+        [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]],
+        dtype=np.float32,
+    )
+    ids = ["vec_a", "vec_b", "vec_c"]
+    metadata = [
+        {"tag": "alpha", "value": 1},
+        {"tag": "beta", "value": 2},
+        {"tag": "gamma", "value": 3},
+    ]
+
+    index = FAISSIndex(faiss.IndexFlatL2(3), dimension=3)
+    index.add_vectors(vectors, ids=ids)
+    for vec_id, meta in zip(ids, metadata):
+        index.metadata[vec_id] = meta
+
+    index_path = tmp_path / "test_index.faiss"
+    index.save(index_path)
+
+    loaded_index = FAISSIndex.load(index_path, dimension=3)
+
+    assert loaded_index.vector_ids == ids
+    assert loaded_index.metadata == dict(zip(ids, metadata))
+    assert loaded_index.dimension == 3
+    assert loaded_index.index_type == "flat"
+
+    for i, vec_id in enumerate(ids):
+        np.testing.assert_allclose(loaded_index.get_vector(vec_id), vectors[i], atol=1e-6)
+        assert loaded_index.get_metadata(vec_id) == metadata[i]
+
+
+def test_faiss_store_save_load_roundtrip_with_metadata(tmp_path):
+    """Test FAISSStore save_index/load_index round-trip preserves IDs and metadata."""
+    faiss = pytest.importorskip("faiss")
+    store = FAISSStore(dimension=3)
+    vectors = np.array(
+        [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+        dtype=np.float32,
+    )
+    ids = ["store_vec_1", "store_vec_2"]
+    metadata = [{"source": "doc1"}, {"source": "doc2"}]
+
+    store.add_vectors(vectors, ids=ids, metadata=metadata)
+
+    index_path = tmp_path / "store_index.faiss"
+    store.save_index(index_path)
+
+    new_store = FAISSStore(dimension=3)
+    new_store.load_index(index_path)
+
+    assert new_store.index.vector_ids == ids
+    assert new_store.index.metadata == dict(zip(ids, metadata))
+    assert new_store.count() == 2
+
+    for i, vec_id in enumerate(ids):
+        np.testing.assert_allclose(new_store.get_vector(vec_id), vectors[i], atol=1e-6)
+        assert new_store.get_metadata(vec_id) == metadata[i]
+
+    results = new_store.search_similar(vectors[0], k=2)
+    assert len(results) == 2
+    assert results[0]["id"] == ids[0]
+    assert results[0]["metadata"] == metadata[0]

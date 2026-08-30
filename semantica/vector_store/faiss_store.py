@@ -35,6 +35,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -52,6 +53,11 @@ try:
 except (ImportError, OSError):
     FAISS_AVAILABLE = False
     faiss = None
+
+
+def _metadata_path(index_path: Union[str, Path]) -> Path:
+    """Get the metadata file path for a given index path."""
+    return Path(str(index_path) + ".meta.json")
 
 
 class FAISSIndex:
@@ -139,6 +145,17 @@ class FAISSIndex:
         """Save index to disk."""
         if FAISS_AVAILABLE:
             faiss.write_index(self.index, str(path))
+            meta_path = _metadata_path(path)
+            meta_path.write_text(
+                json.dumps(
+                    {
+                        "vector_ids": self.vector_ids,
+                        "metadata": self.metadata,
+                        "dimension": self.dimension,
+                        "index_type": self.index_type,
+                    }
+                )
+            )
         else:
             raise ProcessingError("FAISS not available")
 
@@ -149,7 +166,18 @@ class FAISSIndex:
             raise ProcessingError("FAISS not available")
 
         index = faiss.read_index(str(path))
-        return cls(index, dimension, index_type)
+        meta_path = _metadata_path(path)
+        if meta_path.exists():
+            data = json.loads(meta_path.read_text())
+            vector_ids = data.get("vector_ids", [])
+            metadata = data.get("metadata", {})
+        else:
+            vector_ids = []
+            metadata = {}
+        obj = cls(index, dimension, index_type)
+        obj.vector_ids = vector_ids
+        obj.metadata = metadata
+        return obj
 
 
 class FAISSSearch:
