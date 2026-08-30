@@ -406,6 +406,82 @@ class WhitespaceNormalizer:
 
         self.logger.debug("Whitespace normalizer initialized")
 
+    @staticmethod
+    def _split_code_blocks(text: str) -> List[tuple]:
+        """
+        Split text into alternating non-code and code segments.
+
+        Fenced code blocks are delimited by lines starting with three or more
+        backticks (```) or tildes (~~~), optionally followed by a language tag.
+        The opening fence must appear at the start of a line (allowing leading
+        whitespace).  The block ends at the next closing fence line with the
+        same fence character and at least as many repetitions.
+
+        If a fence is opened but never closed, everything from the opening
+        fence to the end of the text is treated as code.
+
+        Returns:
+            List of (is_code, segment_text) tuples where is_code is True for
+            fenced code block content (including the fence lines themselves).
+        """
+        fence_re = re.compile(r"^[ \t]*([`~]{3,})(.*)$", re.MULTILINE)
+
+        fence_starts: List[tuple] = []
+        for m in fence_re.finditer(text):
+            fence_starts.append((m.start(), m.group(1), m.group(2), m.end()))
+
+        segments: List[tuple] = []
+        last_end = 0
+        in_fence = False
+        fence_char: Optional[str] = None
+        fence_len = 0
+
+        for start, chars, _rest, match_end in fence_starts:
+            cur_char = chars[0]
+            cur_len = len(chars)
+
+            if not in_fence:
+                # Opening fence
+                if start > last_end:
+                    segments.append((False, text[last_end:start]))
+                in_fence = True
+                fence_char = cur_char
+                fence_len = cur_len
+                # Include the opening fence line in the code segment
+                line_end = text.find("\n", match_end)
+                if line_end == -1:
+                    line_end = len(text)
+                else:
+                    line_end += 1  # include the newline
+                segments.append((True, text[start:line_end]))
+                last_end = line_end
+            else:
+                # Are we looking for a closing fence?
+                if cur_char == fence_char and cur_len >= fence_len:
+                    # Closing fence found – emit code up to and including it
+                    line_end = text.find("\n", match_end)
+                    if line_end == -1:
+                        line_end = len(text)
+                    else:
+                        line_end += 1
+                    if start > last_end:
+                        segments.append((True, text[last_end:start]))
+                    segments.append((True, text[start:line_end]))
+                    last_end = line_end
+                    in_fence = False
+                    fence_char = None
+                    fence_len = 0
+
+        # Handle unclosed fence – everything from last_end is code
+        if in_fence:
+            if last_end < len(text):
+                segments.append((True, text[last_end:]))
+            last_end = len(text)
+        elif last_end < len(text):
+            segments.append((False, text[last_end:]))
+
+        return segments
+
     def normalize_whitespace(
         self, text: str, line_break_type: str = "unix", **options
     ) -> str:
@@ -413,7 +489,9 @@ class WhitespaceNormalizer:
         Normalize whitespace in text.
 
         This method normalizes whitespace by replacing tabs with spaces,
-        normalizing line breaks, and collapsing multiple spaces.
+        normalizing line breaks, and collapsing multiple spaces.  Content
+        inside fenced code blocks (delimited by ``` or ~~~) is preserved
+        exactly as-is so that indentation is not lost.
 
         Args:
             text: Input text with potentially irregular whitespace
@@ -428,17 +506,29 @@ class WhitespaceNormalizer:
         if not text:
             return ""
 
-        # Replace tabs with spaces
-        text = text.replace("\t", " ")
-
-        # Normalize line breaks
+        # Normalize line breaks first (applies to all text including code blocks)
         text = self.handle_line_breaks(text, line_break_type)
 
-        # Remove excessive whitespace
-        text = re.sub(r" +", " ", text)
-        text = re.sub(r"\n\s*\n", "\n\n", text)  # Normalize multiple newlines
+        # Replace tabs with spaces globally (safe for code blocks – converts
+        # tab indentation to space indentation while preserving structure)
+        text = text.replace("\t", " ")
 
-        return text.strip()
+        # Split into code / non-code segments
+        segments = self._split_code_blocks(text)
+
+        result_parts: List[str] = []
+        for is_code, segment in segments:
+            if is_code:
+                # Preserve code block content as-is (only tabs were replaced)
+                result_parts.append(segment)
+            else:
+                # Collapse multiple spaces (applies to all whitespace in prose)
+                segment = re.sub(r" +", " ", segment)
+                # Normalize multiple blank lines
+                segment = re.sub(r"\n\s*\n", "\n\n", segment)
+                result_parts.append(segment)
+
+        return "".join(result_parts).strip()
 
     def handle_line_breaks(self, text: str, line_break_type: str = "unix") -> str:
         """

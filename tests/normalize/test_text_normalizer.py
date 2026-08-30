@@ -313,12 +313,294 @@ class TestSpecialCharacterProcessor(unittest.TestCase):
 
     def test_process_special_chars_integration(self):
         """Test the main processing method integration"""
-        text = "“Crème”"
+        text = "\u201cCr\u00e8me\u201d"
 
         result = self.processor.process_special_chars(
             text, normalize_diacritics=True, remove_diacritics=True
         )
         self.assertEqual(result, '"Creme"')
+
+
+class TestFencedCodeBlockPreservation(unittest.TestCase):
+    """
+    Test suite ensuring whitespace normalization preserves indentation
+    inside fenced code blocks (``` and ~~~ delimiters).
+    """
+
+    def setUp(self):
+        self.normalizer = WhitespaceNormalizer()
+
+    def test_python_code_4_space_indentation_backtick_fence(self):
+        """4-space indented Python code inside ```python fences is preserved."""
+        text = (
+            "Some text before\n"
+            "\n"
+            "```python\n"
+            "def hello():\n"
+            "    print('hi')\n"
+            "    if True:\n"
+            "        return 1\n"
+            "```\n"
+            "\n"
+            "Some text after"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    print('hi')", result)
+        self.assertIn("        return 1", result)
+        self.assertIn("def hello():", result)
+
+    def test_python_code_4_space_indentation_tilde_fence(self):
+        """4-space indented Python code inside ~~~python fences is preserved."""
+        text = (
+            "Before\n"
+            "\n"
+            "~~~python\n"
+            "class Foo:\n"
+            "    def method(self):\n"
+            "        pass\n"
+            "~~~\n"
+            "\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    def method(self):", result)
+        self.assertIn("        pass", result)
+
+    def test_nested_lists_outside_code_block(self):
+        """Nested list indentation outside code blocks is collapsed normally."""
+        text = (
+            "A list:\n"
+            "\n"
+            "  - item one\n"
+            "  - item two\n"
+            "    - nested item\n"
+            "  - item three"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # The leading spaces on list items get collapsed
+        self.assertNotIn("  - item", result)
+        self.assertIn("- item", result)
+
+    def test_mixed_code_and_normal_text(self):
+        """Code block is preserved while surrounding text is normalized."""
+        text = (
+            "  Leading   spaces   in   prose\n"
+            "\n"
+            "```js\n"
+            "const   x   =   1;\n"
+            "```\n"
+            "\n"
+            "  Trailing   spaces   in   prose"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # Prose multiple spaces collapsed
+        self.assertIn("Leading spaces in prose", result)
+        self.assertIn("Trailing spaces in prose", result)
+        # Code block whitespace preserved
+        self.assertIn("const   x   =   1;", result)
+
+    def test_multiple_code_blocks(self):
+        """Multiple code blocks are each preserved."""
+        text = (
+            "First\n"
+            "```\n"
+            "    a    b\n"
+            "```\n"
+            "Middle\n"
+            "```\n"
+            "    c    d\n"
+            "```\n"
+            "Last"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    a    b", result)
+        self.assertIn("    c    d", result)
+        self.assertIn("First", result)
+        self.assertIn("Middle", result)
+        self.assertIn("Last", result)
+
+    def test_unclosed_fence_preserves_content(self):
+        """An unclosed fence still preserves content as code."""
+        text = (
+            "Before\n"
+            "```\n"
+            "    indented code\n"
+            "    still code"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    indented code", result)
+        self.assertIn("    still code", result)
+
+    def test_fence_with_language_tag(self):
+        """Fence lines with language tags are handled correctly."""
+        text = (
+            "Text\n"
+            "```python\n"
+            "    x = 1\n"
+            "```\n"
+            "More text"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    x = 1", result)
+
+    def test_tab_to_space_conversion_in_code(self):
+        """Tabs inside code blocks are converted to spaces but not collapsed."""
+        text = (
+            "```\n"
+            "\tdef foo():\n"
+            "\t\tpass\n"
+            "```"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # Tabs converted to single space each
+        self.assertIn(" def foo():", result)
+        self.assertIn("  pass", result)
+
+    def test_empty_code_block(self):
+        """Empty code blocks are handled."""
+        text = "Before\n```\n```\nAfter"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("Before", result)
+        self.assertIn("After", result)
+
+    def test_code_block_only(self):
+        """Text that is entirely a code block."""
+        text = "```\n    only code\n```"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    only code", result)
+
+    def test_empty_input(self):
+        """Empty string returns empty string."""
+        self.assertEqual(self.normalizer.normalize_whitespace(""), "")
+
+    def test_real_world_python_example(self):
+        """Full realistic example with prose, code, and nested lists."""
+        text = (
+            "Here   is   an   example:\n"
+            "\n"
+            "```python\n"
+            "def factorial(n):\n"
+            "    if n <= 1:\n"
+            "        return 1\n"
+            "    return n * factorial(n - 1)\n"
+            "```\n"
+            "\n"
+            "And   some   notes:\n"
+            "\n"
+            "  - First   point\n"
+            "  - Second   point\n"
+            "    - Sub-point"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # Code block fully preserved
+        self.assertIn("    if n <= 1:", result)
+        self.assertIn("        return 1", result)
+        self.assertIn("    return n * factorial(n - 1)", result)
+        # Prose normalized
+        self.assertIn("Here is an example", result)
+        self.assertIn("And some notes", result)
+
+    def test_split_code_blocks_helper(self):
+        """Test the _split_code_blocks helper directly."""
+        text = "abc\n```\ncode\n```\ndef"
+        segments = self.normalizer._split_code_blocks(text)
+        # Before (non-code) + code block (code) + after (non-code)
+        non_code = [s for s in segments if not s[0]]
+        code = [s for s in segments if s[0]]
+        self.assertEqual(len(non_code), 2)
+        self.assertIn("abc", non_code[0][1])
+        self.assertIn("def", non_code[1][1])
+        self.assertTrue(len(code) >= 1)
+        # All code segments combined contain the full code block
+        code_text = "".join(seg for _, seg in code)
+        self.assertIn("```", code_text)
+        self.assertIn("code", code_text)
+
+    def test_very_long_fenced_block(self):
+        """Deeply indented code (8+ spaces) inside a code block is preserved."""
+        text = (
+            "text\n"
+            "```\n"
+            "        eight spaces\n"
+            "                sixteen spaces\n"
+            "```\n"
+            "more text"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("        eight spaces", result)
+        self.assertIn("                sixteen spaces", result)
+
+
+class TestTextNormalizerFencedCodeIntegration(unittest.TestCase):
+    """
+    Integration tests for TextNormalizer.normalize_text with fenced code blocks.
+    """
+
+    def setUp(self):
+        self.logger_patcher = patch("semantica.normalize.text_normalizer.get_logger")
+        self.tracker_patcher = patch(
+            "semantica.normalize.text_normalizer.get_progress_tracker"
+        )
+        self.cleaner_patcher = patch("semantica.normalize.text_normalizer.TextCleaner")
+
+        self.mock_logger = self.logger_patcher.start()
+        self.mock_tracker = self.tracker_patcher.start()
+        self.mock_cleaner_cls = self.cleaner_patcher.start()
+
+        self.mock_tracker_instance = MagicMock()
+        self.mock_tracker_instance.enabled = True
+        self.mock_tracker.return_value = self.mock_tracker_instance
+
+        self.mock_cleaner_instance = MagicMock()
+        self.mock_cleaner_cls.return_value = self.mock_cleaner_instance
+
+        self.normalizer = TextNormalizer()
+
+    def tearDown(self):
+        self.logger_patcher.stop()
+        self.tracker_patcher.stop()
+        self.cleaner_patcher.stop()
+
+    def test_normalize_text_preserves_code_block_indentation(self):
+        """Full normalize_text pipeline preserves code block indentation."""
+        text = (
+            "  Some   text  \n"
+            "```python\n"
+            "def greet(name):\n"
+            "    print(f'Hello, {name}')\n"
+            "```\n"
+            "  More   text  "
+        )
+        result = self.normalizer.normalize_text(text)
+        self.assertIn("    print(f'Hello, {name}')", result)
+        self.assertIn("Some text", result)
+        self.assertIn("More text", result)
+
+    def test_normalize_text_with_tilde_fence(self):
+        """normalize_text preserves indentation inside ~~~ fences."""
+        text = (
+            "Intro\n"
+            "~~~\n"
+            "    indented\n"
+            "~~~\n"
+            "Outro"
+        )
+        result = self.normalizer.normalize_text(text)
+        self.assertIn("    indented", result)
+
+    def test_normalize_text_with_smart_quotes_and_code(self):
+        """Smart quotes are replaced outside code blocks, code is preserved."""
+        text = (
+            "\u201cquoted\u201d text\n"
+            "```\n"
+            "    code    here\n"
+            "```\n"
+            "\u201cmore\u201d"
+        )
+        result = self.normalizer.normalize_text(text)
+        self.assertIn('"quoted" text', result)
+        self.assertIn("    code    here", result)
+        self.assertIn('"more"', result)
 
 
 if __name__ == "__main__":
