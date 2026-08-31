@@ -532,7 +532,22 @@ class WhitespaceNormalizer:
                 segment = re.sub(r"\n\s*\n", "\n\n", segment)
                 result_parts.append(segment)
 
-        return "".join(result_parts).strip()
+        result = "".join(result_parts)
+
+        # Collapse excess blank lines that span segment boundaries (e.g. a
+        # trailing \n from a code block followed by blank lines in prose).
+        result = re.sub(r"\n{3,}", "\n\n", result)
+
+        # Only strip leading whitespace if the first segment is prose (non-code),
+        # and only strip trailing whitespace if the last segment is prose (non-code).
+        # This preserves indentation on fence lines at the boundaries.
+        if segments:
+            if not segments[0][0]:  # first segment is prose
+                result = result.lstrip()
+            if not segments[-1][0]:  # last segment is prose
+                result = result.rstrip()
+
+        return result
 
     def handle_line_breaks(self, text: str, line_break_type: str = "unix") -> str:
         """

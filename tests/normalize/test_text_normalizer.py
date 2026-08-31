@@ -473,6 +473,20 @@ class TestFencedCodeBlockPreservation(unittest.TestCase):
         """Empty string returns empty string."""
         self.assertEqual(self.normalizer.normalize_whitespace(""), "")
 
+    def test_indented_fence_at_start_preserves_leading_whitespace(self):
+        """Leading whitespace on an opening fence at the start of input is preserved."""
+        text = "   ```python\n   code\n   ```"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertTrue(result.startswith("   ```python"),
+                        f"Leading indentation stripped; got: {result!r}")
+
+    def test_indented_fence_at_end_preserves_trailing_whitespace(self):
+        """Trailing whitespace on a closing fence at the end of input is preserved."""
+        text = "```python\n   code\n   ```   "
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertTrue(result.endswith("```   "),
+                        f"Trailing indentation stripped; got: {result!r}")
+
     def test_real_world_python_example(self):
         """Full realistic example with prose, code, and nested lists."""
         text = (
