@@ -12,6 +12,7 @@ on:
       - 'README.md'
       - 'LICENSE'
       - 'MANIFEST.in'
+      - 'requirements-ci.txt'
       - 'semantica/**'
       - 'integrations/**'
       - 'explorer/**'
