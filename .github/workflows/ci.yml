@@ -72,7 +72,7 @@ jobs:
           diff \
             <(grep -E '^[a-zA-Z0-9._-]+==' requirements-ci.txt | sed 's/ \\$//') \
             <(grep -E '^[a-zA-Z0-9._-]+==' /tmp/requirements-ci-check.txt)
-      - run: pip install build
+      - run: pip install build==1.6.0
       # wheel is build-time only (not in requirements-ci.txt) — install the
       # same pinned version [build-system] declares so --no-isolation works.
       - run: pip install wheel==0.48.0
