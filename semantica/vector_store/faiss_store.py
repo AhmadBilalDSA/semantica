@@ -26,7 +26,7 @@ Example Usage:
     >>> vector_ids = store.add_vectors(vectors, ids, metadata)
     >>> results = store.search_similar(query_vector, k=10)
     >>> store.save_index("index.faiss")
-    >>> 
+    >>>
     >>> from semantica.vector_store import FAISSIndexBuilder
     >>> builder = FAISSIndexBuilder(dimension=768)
     >>> index = builder.build_index(index_type="ivf", metric="L2", nlist=100)
@@ -166,7 +166,8 @@ class FAISSIndex:
                 "metadata": self.metadata,
                 "dimension": self.dimension,
                 "index_type": self.index_type,
-            }
+            },
+            default=str,
         )
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_meta = meta_path.with_suffix(meta_path.suffix + ".tmp")
@@ -200,6 +201,16 @@ class FAISSIndex:
                 dimension = int(persisted_dimension)
             if persisted_index_type is not None:
                 index_type = persisted_index_type
+
+            # Check for vector count vs sidecar ID count mismatch
+            if len(vector_ids) != index.ntotal:
+                warnings.warn(
+                    f"FAISS index vector count ({index.ntotal}) does not match "
+                    f"sidecar metadata ID count ({len(vector_ids)}). "
+                    "This may indicate data corruption or an incomplete save.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
         else:
             warnings.warn(
                 "FAISS index loaded without a companion .meta.json file: "
@@ -249,11 +260,11 @@ class FAISSSearch:
             if idx < len(self.index.vector_ids):
                 vector_id = self.index.vector_ids[idx]
                 dist_val = float(dist)
-                
+
                 # Standardize score as similarity (0.0 to 1.0)
                 # while preserving original distance
                 similarity_score = 1.0 / (1.0 + max(0.0, dist_val))
-                
+
                 results.append(
                     {
                         "id": vector_id,
@@ -640,7 +651,7 @@ class FAISSStore:
         if self.index is None or limit <= 0:
             return []
 
-        ids_page = self.index.vector_ids[offset:offset + limit]
+        ids_page = self.index.vector_ids[offset : offset + limit]
         return [
             {
                 "id": vector_id,
