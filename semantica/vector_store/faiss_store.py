@@ -142,6 +142,7 @@ class FAISSIndex:
         return self.metadata.get(vector_id)
 
     def save(self, path: Union[str, Path]):
+<<<<<<< Updated upstream
         """Save index to disk."""
         if FAISS_AVAILABLE:
             faiss.write_index(self.index, str(path))
@@ -158,22 +159,78 @@ class FAISSIndex:
             )
         else:
             raise ProcessingError("FAISS not available")
+=======
+        """Save index to disk.
+>>>>>>> Stashed changes
 
-    @classmethod
-    def load(cls, path: Union[str, Path], dimension: int, index_type: str = "flat"):
-        """Load index from disk."""
+        Writes the raw FAISS index binary, then serializes ``vector_ids``,
+        ``metadata``, ``dimension`` and ``index_type`` to a companion
+        ``.meta.json`` file so they can be restored on load.  The companion
+        file is written atomically (temp file + rename) so a partially
+        written JSON never leaves a corrupt state on disk.
+        """
         if not FAISS_AVAILABLE:
             raise ProcessingError("FAISS not available")
 
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        faiss.write_index(self.index, str(path))
+
+        meta_path = _metadata_path(path)
+        payload = json.dumps(
+            {
+                "vector_ids": self.vector_ids,
+                "metadata": self.metadata,
+                "dimension": self.dimension,
+                "index_type": self.index_type,
+            }
+        )
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_meta = meta_path.with_suffix(meta_path.suffix + ".tmp")
+        tmp_meta.write_text(payload)
+        tmp_meta.replace(meta_path)
+
+    @classmethod
+    def load(cls, path: Union[str, Path], dimension: int, index_type: str = "flat"):
+        """Load index from disk.
+
+        Restores ``vector_ids`` and ``metadata`` from the companion
+        ``.meta.json`` file when present.  When the companion file exists, its
+        persisted ``dimension`` and ``index_type`` take precedence over the
+        caller-supplied values so the loaded wrapper faithfully reflects what
+        was originally saved.
+        """
+        if not FAISS_AVAILABLE:
+            raise ProcessingError("FAISS not available")
+
+        path = Path(path)
         index = faiss.read_index(str(path))
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
         meta_path = _metadata_path(path)
         if meta_path.exists():
             data = json.loads(meta_path.read_text())
             vector_ids = data.get("vector_ids", [])
             metadata = data.get("metadata", {})
+<<<<<<< Updated upstream
         else:
             vector_ids = []
             metadata = {}
+=======
+            persisted_dimension = data.get("dimension")
+            persisted_index_type = data.get("index_type")
+            if persisted_dimension is not None:
+                dimension = int(persisted_dimension)
+            if persisted_index_type is not None:
+                index_type = persisted_index_type
+        else:
+            vector_ids = []
+            metadata = {}
+
+>>>>>>> Stashed changes
         obj = cls(index, dimension, index_type)
         obj.vector_ids = vector_ids
         obj.metadata = metadata

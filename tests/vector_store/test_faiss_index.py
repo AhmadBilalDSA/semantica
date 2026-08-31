@@ -1,9 +1,15 @@
 from unittest.mock import MagicMock
 
+import json
+
 import numpy as np
 import pytest
 
-from semantica.vector_store.faiss_store import FAISSIndex, FAISSStore
+from semantica.vector_store.faiss_store import (
+    FAISSIndex,
+    FAISSStore,
+    _metadata_path,
+)
 
 
 def test_get_vector_reconstructs_from_flat_l2_index():
@@ -210,7 +216,11 @@ def test_add_vectors_retry_with_partial_overlap_only_adds_new_ids():
 
 
 def test_faiss_index_save_load_roundtrip_with_metadata(tmp_path):
+<<<<<<< Updated upstream
     """Test that vector_ids and metadata persist across save/load."""
+=======
+    """vector_ids and metadata persist across a FAISSIndex save/load round-trip."""
+>>>>>>> Stashed changes
     faiss = pytest.importorskip("faiss")
     vectors = np.array(
         [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]],
@@ -230,6 +240,10 @@ def test_faiss_index_save_load_roundtrip_with_metadata(tmp_path):
 
     index_path = tmp_path / "test_index.faiss"
     index.save(index_path)
+<<<<<<< Updated upstream
+=======
+    assert _metadata_path(index_path).exists()
+>>>>>>> Stashed changes
 
     loaded_index = FAISSIndex.load(index_path, dimension=3)
 
@@ -243,8 +257,32 @@ def test_faiss_index_save_load_roundtrip_with_metadata(tmp_path):
         assert loaded_index.get_metadata(vec_id) == metadata[i]
 
 
+<<<<<<< Updated upstream
 def test_faiss_store_save_load_roundtrip_with_metadata(tmp_path):
     """Test FAISSStore save_index/load_index round-trip preserves IDs and metadata."""
+=======
+def test_faiss_index_load_writes_companion_json_file(tmp_path):
+    """save() writes a companion .meta.json file alongside the index."""
+    faiss = pytest.importorskip("faiss")
+    index = FAISSIndex(faiss.IndexFlatL2(3), dimension=3)
+    index.add_vectors(np.array([[1, 2, 3]], dtype=np.float32), ids=["x"])
+    index.metadata["x"] = {"source": "doc"}
+
+    index_path = tmp_path / "sub" / "dir" / "index.faiss"
+    index.save(index_path)
+
+    meta_path = _metadata_path(index_path)
+    assert meta_path.exists()
+    payload = json.loads(meta_path.read_text())
+    assert payload["vector_ids"] == ["x"]
+    assert payload["metadata"] == {"x": {"source": "doc"}}
+    assert payload["dimension"] == 3
+    assert payload["index_type"] == "flat"
+
+
+def test_faiss_store_save_load_roundtrip_with_metadata(tmp_path):
+    """FAISSStore save_index/load_index round-trip preserves IDs and metadata."""
+>>>>>>> Stashed changes
     faiss = pytest.importorskip("faiss")
     store = FAISSStore(dimension=3)
     vectors = np.array(
@@ -274,3 +312,114 @@ def test_faiss_store_save_load_roundtrip_with_metadata(tmp_path):
     assert len(results) == 2
     assert results[0]["id"] == ids[0]
     assert results[0]["metadata"] == metadata[0]
+<<<<<<< Updated upstream
+=======
+
+
+def test_roundtrip_load_respects_persisted_dimension_and_index_type(tmp_path):
+    """load() uses persisted dimension/index_type over caller-supplied values."""
+    faiss = pytest.importorskip("faiss")
+    vectors = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+    index = FAISSIndex(faiss.IndexFlatL2(3), dimension=3, index_type="flat")
+    index.add_vectors(vectors, ids=["a", "b"])
+
+    index_path = tmp_path / "index.faiss"
+    index.save(index_path)
+
+    loaded_index = FAISSIndex.load(
+        index_path, dimension=999, index_type="hnsw"
+    )
+
+    assert loaded_index.dimension == 3
+    assert loaded_index.index_type == "flat"
+    assert loaded_index.vector_ids == ["a", "b"]
+
+
+def test_roundtrip_filter_by_metadata_after_reload(tmp_path):
+    """filter_by_metadata works correctly on a reloaded store."""
+    faiss = pytest.importorskip("faiss")
+    store = FAISSStore(dimension=3)
+    vectors = np.array(
+        [
+            [0.1, 0.2, 0.3],
+            [0.4, 0.5, 0.6],
+            [0.7, 0.8, 0.9],
+        ],
+        dtype=np.float32,
+    )
+    ids = ["d1", "d2", "d3"]
+    metadata = [
+        {"source": "alpha", "tier": 1},
+        {"source": "beta", "tier": 2},
+        {"source": "alpha", "tier": 3},
+    ]
+    store.add_vectors(vectors, ids=ids, metadata=metadata)
+
+    index_path = tmp_path / "index.faiss"
+    store.save_index(index_path)
+
+    new_store = FAISSStore(dimension=3)
+    new_store.load_index(index_path)
+
+    alpha = new_store.filter_by_metadata({"source": "alpha"})
+    assert {r["id"] for r in alpha} == {"d1", "d3"}
+    for r in alpha:
+        assert r["metadata"]["source"] == "alpha"
+        np.testing.assert_allclose(r["vector"], store.get_vector(r["id"]), atol=1e-6)
+
+    tier = new_store.filter_by_metadata({"tier": {"min": 2}})
+    assert {r["id"] for r in tier} == {"d2", "d3"}
+
+    none_match = new_store.filter_by_metadata({"source": "gamma"})
+    assert none_match == []
+
+
+def test_roundtrip_scan_vectors_on_loaded_store(tmp_path):
+    """scan_vectors returns restored ids and metadata on a loaded store."""
+    faiss = pytest.importorskip("faiss")
+    store = FAISSStore(dimension=3)
+    vectors = np.array(
+        [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]],
+        dtype=np.float32,
+    )
+    ids = ["a", "b", "c"]
+    metadata = [{"i": 0}, {"i": 1}, {"i": 2}]
+    store.add_vectors(vectors, ids=ids, metadata=metadata)
+
+    index_path = tmp_path / "index.faiss"
+    store.save_index(index_path)
+
+    new_store = FAISSStore(dimension=3)
+    new_store.load_index(index_path)
+
+    page = new_store.scan_vectors(offset=0, limit=10)
+    assert [p["id"] for p in page] == ids
+    for p, v, meta in zip(page, vectors, metadata):
+        np.testing.assert_allclose(p["vector"], v, atol=1e-6)
+        assert p["metadata"] == meta
+
+    assert [p["id"] for p in new_store.scan_vectors(offset=1, limit=2)] == ["b", "c"]
+
+
+def test_roundtrip_duplicate_check_on_loaded_store(tmp_path):
+    """Re-adding existing ids on a loaded store does not duplicate vectors."""
+    faiss = pytest.importorskip("faiss")
+    store = FAISSStore(dimension=3)
+    vectors = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+    ids = ["a", "b"]
+    store.add_vectors(vectors, ids=ids, metadata=[{"i": 0}, {"i": 1}])
+
+    index_path = tmp_path / "index.faiss"
+    store.save_index(index_path)
+
+    new_store = FAISSStore(dimension=3)
+    new_store.load_index(index_path)
+    assert new_store.count() == 2
+
+    new_store.add_vectors(vectors, ids=ids, metadata=[{"i": 0}, {"i": 1}])
+
+    assert new_store.count() == 2
+    assert new_store.index.vector_ids == ids
+    assert new_store.index.metadata == dict(zip(ids, [{"i": 0}, {"i": 1}]))
+    assert new_store.index.index.ntotal == 2
+>>>>>>> Stashed changes
