@@ -142,26 +142,7 @@ class FAISSIndex:
         return self.metadata.get(vector_id)
 
     def save(self, path: Union[str, Path]):
-<<<<<<< Updated upstream
-        """Save index to disk."""
-        if FAISS_AVAILABLE:
-            faiss.write_index(self.index, str(path))
-            meta_path = _metadata_path(path)
-            meta_path.write_text(
-                json.dumps(
-                    {
-                        "vector_ids": self.vector_ids,
-                        "metadata": self.metadata,
-                        "dimension": self.dimension,
-                        "index_type": self.index_type,
-                    }
-                )
-            )
-        else:
-            raise ProcessingError("FAISS not available")
-=======
         """Save index to disk.
->>>>>>> Stashed changes
 
         Writes the raw FAISS index binary, then serializes ``vector_ids``,
         ``metadata``, ``dimension`` and ``index_type`` to a companion
@@ -206,20 +187,12 @@ class FAISSIndex:
 
         path = Path(path)
         index = faiss.read_index(str(path))
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
         meta_path = _metadata_path(path)
         if meta_path.exists():
             data = json.loads(meta_path.read_text())
             vector_ids = data.get("vector_ids", [])
             metadata = data.get("metadata", {})
-<<<<<<< Updated upstream
-        else:
-            vector_ids = []
-            metadata = {}
-=======
             persisted_dimension = data.get("dimension")
             persisted_index_type = data.get("index_type")
             if persisted_dimension is not None:
@@ -230,7 +203,6 @@ class FAISSIndex:
             vector_ids = []
             metadata = {}
 
->>>>>>> Stashed changes
         obj = cls(index, dimension, index_type)
         obj.vector_ids = vector_ids
         obj.metadata = metadata

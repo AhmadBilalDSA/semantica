@@ -216,11 +216,7 @@ def test_add_vectors_retry_with_partial_overlap_only_adds_new_ids():
 
 
 def test_faiss_index_save_load_roundtrip_with_metadata(tmp_path):
-<<<<<<< Updated upstream
-    """Test that vector_ids and metadata persist across save/load."""
-=======
     """vector_ids and metadata persist across a FAISSIndex save/load round-trip."""
->>>>>>> Stashed changes
     faiss = pytest.importorskip("faiss")
     vectors = np.array(
         [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]],
@@ -240,10 +236,7 @@ def test_faiss_index_save_load_roundtrip_with_metadata(tmp_path):
 
     index_path = tmp_path / "test_index.faiss"
     index.save(index_path)
-<<<<<<< Updated upstream
-=======
     assert _metadata_path(index_path).exists()
->>>>>>> Stashed changes
 
     loaded_index = FAISSIndex.load(index_path, dimension=3)
 
@@ -257,10 +250,6 @@ def test_faiss_index_save_load_roundtrip_with_metadata(tmp_path):
         assert loaded_index.get_metadata(vec_id) == metadata[i]
 
 
-<<<<<<< Updated upstream
-def test_faiss_store_save_load_roundtrip_with_metadata(tmp_path):
-    """Test FAISSStore save_index/load_index round-trip preserves IDs and metadata."""
-=======
 def test_faiss_index_load_writes_companion_json_file(tmp_path):
     """save() writes a companion .meta.json file alongside the index."""
     faiss = pytest.importorskip("faiss")
@@ -282,7 +271,6 @@ def test_faiss_index_load_writes_companion_json_file(tmp_path):
 
 def test_faiss_store_save_load_roundtrip_with_metadata(tmp_path):
     """FAISSStore save_index/load_index round-trip preserves IDs and metadata."""
->>>>>>> Stashed changes
     faiss = pytest.importorskip("faiss")
     store = FAISSStore(dimension=3)
     vectors = np.array(
@@ -312,8 +300,6 @@ def test_faiss_store_save_load_roundtrip_with_metadata(tmp_path):
     assert len(results) == 2
     assert results[0]["id"] == ids[0]
     assert results[0]["metadata"] == metadata[0]
-<<<<<<< Updated upstream
-=======
 
 
 def test_roundtrip_load_respects_persisted_dimension_and_index_type(tmp_path):
@@ -422,4 +408,3 @@ def test_roundtrip_duplicate_check_on_loaded_store(tmp_path):
     assert new_store.index.vector_ids == ids
     assert new_store.index.metadata == dict(zip(ids, [{"i": 0}, {"i": 1}]))
     assert new_store.index.index.ntotal == 2
->>>>>>> Stashed changes
