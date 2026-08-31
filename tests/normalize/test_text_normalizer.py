@@ -530,6 +530,285 @@ class TestFencedCodeBlockPreservation(unittest.TestCase):
         self.assertIn("        eight spaces", result)
         self.assertIn("                sixteen spaces", result)
 
+    def test_pure_backtick_fence(self):
+        """A pure run of 3+ backticks opens and closes a code block."""
+        text = (
+            "Before\n"
+            "```\n"
+            "    code here\n"
+            "```\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code here", result)
+        self.assertIn("Before", result)
+        self.assertIn("After", result)
+
+    def test_pure_tilde_fence(self):
+        """A pure run of 3+ tildes opens and closes a code block."""
+        text = (
+            "Before\n"
+            "~~~\n"
+            "    code here\n"
+            "~~~\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code here", result)
+        self.assertIn("Before", result)
+        self.assertIn("After", result)
+
+    def test_mixed_fence_not_recognized(self):
+        """A line starting with mixed backtick/tilde characters is NOT a fence."""
+        text = (
+            "Before\n"
+            "`~~not-a-fence\n"
+            "    indented text\n"
+            "~``also-not\n"
+            "After"
+        )
+        segments = self.normalizer._split_code_blocks(text)
+        # No code segments should exist – everything is prose
+        code_segments = [s for s in segments if s[0]]
+        self.assertEqual(len(code_segments), 0)
+        # The indented text should be in prose and therefore have leading spaces collapsed
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertNotIn("    indented text", result)
+
+    def test_mixed_fence_backtick_tilde_backtick(self):
+        """`~` is not a valid fence delimiter."""
+        segments = self.normalizer._split_code_blocks("`~`code\n`~`")
+        code_segments = [s for s in segments if s[0]]
+        self.assertEqual(len(code_segments), 0)
+
+    def test_mixed_fence_tilde_backtick_tilde(self):
+        """~`~ is not a valid fence delimiter."""
+        segments = self.normalizer._split_code_blocks("~`~code\n~`~")
+        code_segments = [s for s in segments if s[0]]
+        self.assertEqual(len(code_segments), 0)
+
+    def test_longer_mixed_fence_not_recognized(self):
+        """``~~ or ~~`` are not valid fence delimiters."""
+        text = (
+            "``~~\n"
+            "code\n"
+            "``~~"
+        )
+        segments = self.normalizer._split_code_blocks(text)
+        code_segments = [s for s in segments if s[0]]
+        self.assertEqual(len(code_segments), 0)
+
+    def test_false_closer_backtick_with_text(self):
+        """``` not-a-closer should NOT close a code block."""
+        text = (
+            "Before\n"
+            "```\n"
+            "    code\n"
+            "``` not-a-closer\n"
+            "    still code\n"
+            "```\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # Both code lines should be preserved
+        self.assertIn("    code", result)
+        self.assertIn("    still code", result)
+        self.assertIn("After", result)
+
+    def test_false_closer_tilde_with_text(self):
+        """~~~ not-a-closer should NOT close a code block."""
+        text = (
+            "Before\n"
+            "~~~\n"
+            "    code\n"
+            "~~~ not-a-closer\n"
+            "    still code\n"
+            "~~~\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("    still code", result)
+
+    def test_false_closer_with_language_like_text(self):
+        """```python-note should NOT act as a closer for ```python."""
+        text = (
+            "```python\n"
+            "    x = 1\n"
+            "```python-note\n"
+            "    y = 2\n"
+            "```\n"
+            "end"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    x = 1", result)
+        self.assertIn("    y = 2", result)
+
+    def test_closer_with_trailing_spaces_is_valid(self):
+        """A closing fence followed only by spaces is valid."""
+        text = (
+            "Before\n"
+            "```\n"
+            "    code\n"
+            "```   \n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("After", result)
+
+    def test_closer_with_trailing_tabs_is_valid(self):
+        """A closing fence followed only by tabs is valid."""
+        text = (
+            "Before\n"
+            "```\n"
+            "    code\n"
+            "```\t\t\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("After", result)
+
+    def test_false_closer_longer_than_opener(self):
+        """A false closer with more backticks + text still should not close."""
+        text = (
+            "```\n"
+            "    code\n"
+            "````language\n"
+            "```\n"
+            "end"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("end", result)
+
+    def test_blank_lines_collapse_after_code_block(self):
+        """Excess blank lines between a closing fence and prose are collapsed."""
+        text = (
+            "Before\n"
+            "```\n"
+            "    code\n"
+            "```\n"
+            "\n"
+            "\n"
+            "\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # Should have exactly one blank line (two newlines) between code and prose
+        self.assertIn("```\n\nAfter", result)
+
+    def test_blank_lines_collapse_before_code_block(self):
+        """Excess blank lines between prose and an opening fence are collapsed."""
+        text = (
+            "Before\n"
+            "\n"
+            "\n"
+            "\n"
+            "```\n"
+            "    code\n"
+            "```\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # Should have exactly one blank line before the fence
+        self.assertIn("Before\n\n```", result)
+
+    def test_blank_lines_collapse_between_two_code_blocks(self):
+        """Excess blank lines between two code blocks are collapsed."""
+        text = (
+            "```\n"
+            "    a\n"
+            "```\n"
+            "\n"
+            "\n"
+            "\n"
+            "```\n"
+            "    b\n"
+            "```\n"
+            "end"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    a", result)
+        self.assertIn("    b", result)
+        # Only one blank line between code blocks
+        self.assertNotIn("\n\n\n", result)
+
+    def test_blank_lines_with_whitespace_only_between(self):
+        """Blank lines containing only spaces/tabs are collapsed."""
+        text = (
+            "```\n"
+            "    code\n"
+            "```\n"
+            "   \n"
+            "  \t  \n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("After", result)
+        self.assertNotIn("\n\n\n", result)
+
+    def test_four_backtick_fence(self):
+        """Four-backtick fences work correctly."""
+        text = (
+            "Before\n"
+            "````\n"
+            "    code\n"
+            "````\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("After", result)
+
+    def test_five_tilde_fence(self):
+        """Five-tilde fences work correctly."""
+        text = (
+            "Before\n"
+            "~~~~~\n"
+            "    code\n"
+            "~~~~~\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("After", result)
+
+    def test_closing_fence_exact_length_required(self):
+        """A closing fence with fewer delimiters than the opener is NOT a closer."""
+        text = (
+            "````\n"
+            "    code\n"
+            "```\n"
+            "    more code\n"
+            "````\n"
+            "After"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("    code", result)
+        self.assertIn("    more code", result)
+        self.assertIn("After", result)
+
+    def test_false_closer_embedded_in_code_block(self):
+        """A false closer line is preserved as code content inside the block."""
+        text = (
+            "```\n"
+            "line1\n"
+            "``` this is not a closing fence\n"
+            "line2\n"
+            "```\n"
+            "end"
+        )
+        segments = self.normalizer._split_code_blocks(text)
+        code_segments = [s for s in segments if s[0]]
+        # The false closer line should appear in a code segment
+        code_text = "".join(seg for _, seg in code_segments)
+        self.assertIn("``` this is not a closing fence", code_text)
+        self.assertIn("line1", code_text)
+        self.assertIn("line2", code_text)
+
 
 class TestTextNormalizerFencedCodeIntegration(unittest.TestCase):
     """

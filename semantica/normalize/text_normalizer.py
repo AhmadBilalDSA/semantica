@@ -424,7 +424,7 @@ class WhitespaceNormalizer:
             List of (is_code, segment_text) tuples where is_code is True for
             fenced code block content (including the fence lines themselves).
         """
-        fence_re = re.compile(r"^[ \t]*([`~]{3,})(.*)$", re.MULTILINE)
+        fence_re = re.compile(r"^[ \t]*([`]{3,}|[~]{3,})(.*)$", re.MULTILINE)
 
         fence_starts: List[tuple] = []
         for m in fence_re.finditer(text):
@@ -436,7 +436,7 @@ class WhitespaceNormalizer:
         fence_char: Optional[str] = None
         fence_len = 0
 
-        for start, chars, _rest, match_end in fence_starts:
+        for start, chars, rest, match_end in fence_starts:
             cur_char = chars[0]
             cur_len = len(chars)
 
@@ -457,7 +457,11 @@ class WhitespaceNormalizer:
                 last_end = line_end
             else:
                 # Are we looking for a closing fence?
-                if cur_char == fence_char and cur_len >= fence_len:
+                if (
+                    cur_char == fence_char
+                    and cur_len >= fence_len
+                    and rest.strip() == ""
+                ):
                     # Closing fence found – emit code up to and including it
                     line_end = text.find("\n", match_end)
                     if line_end == -1:
