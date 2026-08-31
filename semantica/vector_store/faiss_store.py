@@ -36,6 +36,7 @@ License: MIT
 """
 
 import json
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -200,6 +201,13 @@ class FAISSIndex:
             if persisted_index_type is not None:
                 index_type = persisted_index_type
         else:
+            warnings.warn(
+                "FAISS index loaded without a companion .meta.json file: "
+                "vector IDs and metadata could not be restored, so the index "
+                "will load without ID mappings.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             vector_ids = []
             metadata = {}
 
@@ -537,6 +545,14 @@ class FAISSStore:
         """
         if not FAISS_AVAILABLE:
             raise ProcessingError("FAISS not available")
+
+        path = Path(path)
+        if path.exists() and not _metadata_path(path).exists():
+            self.logger.warning(
+                f"Loaded FAISS index from {path} without a companion "
+                ".meta.json file: vector IDs and metadata could not be "
+                "restored, so the index will load without ID mappings."
+            )
 
         self.index = FAISSIndex.load(path, self.dimension, index_type)
         self.search_engine = FAISSSearch(self.index)

@@ -408,3 +408,53 @@ def test_roundtrip_duplicate_check_on_loaded_store(tmp_path):
     assert new_store.index.vector_ids == ids
     assert new_store.index.metadata == dict(zip(ids, [{"i": 0}, {"i": 1}]))
     assert new_store.index.index.ntotal == 2
+
+
+def test_faiss_store_save_load_scan_vectors_end_to_end(tmp_path):
+    """End-to-end: save/load a store, then scan_vectors returns original ids and metadata."""
+    faiss = pytest.importorskip("faiss")
+    store = FAISSStore(dimension=3)
+    vectors = np.array(
+        [
+            [0.1, 0.2, 0.3],
+            [0.4, 0.5, 0.6],
+            [0.7, 0.8, 0.9],
+        ],
+        dtype=np.float32,
+    )
+    ids = ["doc_a", "doc_b", "doc_c"]
+    metadata = [
+        {"source": "alpha", "page": 1},
+        {"source": "beta", "page": 2},
+        {"source": "alpha", "page": 3},
+    ]
+    store.add_vectors(vectors, ids=ids, metadata=metadata)
+
+    index_path = tmp_path / "index.faiss"
+    store.save_index(index_path)
+
+    new_store = FAISSStore(dimension=3)
+    new_store.load_index(index_path)
+
+    page = new_store.scan_vectors(offset=0, limit=10)
+    assert [p["id"] for p in page] == ids
+    for p, v, meta in zip(page, vectors, metadata):
+        np.testing.assert_allclose(p["vector"], v, atol=1e-6)
+        assert p["metadata"] == meta
+
+
+def test_loading_index_without_meta_json_warns(tmp_path):
+    """Loading an index with no companion .meta.json emits an explicit warning."""
+    faiss = pytest.importorskip("faiss")
+    index = FAISSIndex(faiss.IndexFlatL2(3), dimension=3)
+    index.add_vectors(np.array([[1, 2, 3]], dtype=np.float32), ids=["x"])
+
+    index_path = tmp_path / "index.faiss"
+    index.save(index_path)
+    _metadata_path(index_path).unlink()
+
+    with pytest.warns(RuntimeWarning, match="without ID mappings"):
+        loaded = FAISSIndex.load(index_path, dimension=3)
+
+    assert loaded.vector_ids == []
+    assert loaded.metadata == {}
