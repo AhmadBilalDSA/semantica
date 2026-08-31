@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from semantica.utils.exceptions import ProcessingError
 from semantica.vector_store.faiss_store import (
     FAISSIndex,
     FAISSStore,
@@ -60,17 +61,21 @@ def test_faiss_index_save_load_non_json_serializable_metadata(tmp_path):
             loaded_index.get_vector(vec_id), vectors[i], atol=1e-6
         )
         loaded_meta = loaded_index.get_metadata(vec_id)
-        # datetime, uuid, set, np.int64 are serialized to strings via default=str
-        # np.float64 is natively JSON serializable (converted to Python float)
-        assert loaded_meta["timestamp"] == str(now)
-        assert loaded_meta["uuid"] == str(uid)
-        assert loaded_meta["numpy_int"] == str(metadata[i]["numpy_int"])
+        # Verify lossless restoration of all types
+        assert loaded_meta["timestamp"] == now
+        assert isinstance(loaded_meta["timestamp"], datetime)
+        assert loaded_meta["uuid"] == uid
+        assert isinstance(loaded_meta["uuid"], uuid.UUID)
+        assert loaded_meta["numpy_int"] == metadata[i]["numpy_int"]
+        assert isinstance(loaded_meta["numpy_int"], int)
         assert loaded_meta["numpy_float"] == float(metadata[i]["numpy_float"])
-        assert loaded_meta["a_set"] == str(metadata[i]["a_set"])
+        assert isinstance(loaded_meta["numpy_float"], float)
+        assert loaded_meta["a_set"] == metadata[i]["a_set"]
+        assert isinstance(loaded_meta["a_set"], set)
 
 
-def test_faiss_index_load_warns_on_vector_count_mismatch(tmp_path):
-    """Loading an index with mismatched vector_ids count vs index.ntotal emits a warning."""
+def test_faiss_index_load_raises_on_vector_count_mismatch(tmp_path):
+    """Loading an index with mismatched vector_ids count vs index.ntotal raises ProcessingError."""
     faiss = pytest.importorskip("faiss")
     vectors = np.array(
         [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]],
@@ -90,14 +95,8 @@ def test_faiss_index_load_warns_on_vector_count_mismatch(tmp_path):
     data["vector_ids"] = ["vec_a", "vec_b"]  # Only 2 IDs, but index has 3 vectors
     meta_path.write_text(json.dumps(data))
 
-    with pytest.warns(
-        RuntimeWarning, match="vector count.*does not match.*sidecar metadata ID count"
-    ):
-        loaded = FAISSIndex.load(index_path, dimension=3)
-
-    # Should still load but with the truncated vector_ids
-    assert loaded.vector_ids == ["vec_a", "vec_b"]
-    assert loaded.index.ntotal == 3
+    with pytest.raises(ProcessingError, match="Sidecar metadata vector count.*does not match"):
+        FAISSIndex.load(index_path, dimension=3)
 
 
 def test_get_vector_reconstructs_from_flat_l2_index():

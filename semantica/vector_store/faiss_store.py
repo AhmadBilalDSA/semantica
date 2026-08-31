@@ -37,14 +37,59 @@ License: MIT
 
 import json
 import warnings
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from uuid import UUID
 
 import numpy as np
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+
+
+class _LosslessJSONEncoder(json.JSONEncoder):
+    """JSON encoder that preserves types that are not natively JSON-serializable.
+
+    - sets are serialized as sorted lists under a ``__set__`` wrapper.
+    - NumPy integers and floats are converted to native Python int/float.
+    - NumPy arrays are converted to lists.
+    - ``datetime`` and ``date`` objects are serialized under ``__datetime__`` /
+      ``__date__`` wrappers with ISO-8601 strings.
+    - ``UUID`` objects are serialized under ``__uuid__`` wrapper.
+    """
+
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, set):
+            return {"__set__": sorted(obj, key=str)}
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, datetime):
+            return {"__datetime__": obj.isoformat()}
+        if isinstance(obj, date):
+            return {"__date__": obj.isoformat()}
+        if isinstance(obj, UUID):
+            return {"__uuid__": str(obj)}
+        return super().default(obj)
+
+
+def _lossless_object_hook(dct: Dict[str, Any]) -> Any:
+    """Object hook for ``json.loads`` that restores types encoded by
+    ``_LosslessJSONEncoder``."""
+    if "__set__" in dct:
+        return set(dct["__set__"])
+    if "__datetime__" in dct:
+        return datetime.fromisoformat(dct["__datetime__"])
+    if "__date__" in dct:
+        return date.fromisoformat(dct["__date__"])
+    if "__uuid__" in dct:
+        return UUID(dct["__uuid__"])
+    return dct
 
 # Optional FAISS import
 try:
@@ -167,7 +212,7 @@ class FAISSIndex:
                 "dimension": self.dimension,
                 "index_type": self.index_type,
             },
-            default=str,
+            cls=_LosslessJSONEncoder,
         )
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_meta = meta_path.with_suffix(meta_path.suffix + ".tmp")
@@ -192,7 +237,7 @@ class FAISSIndex:
 
         meta_path = _metadata_path(path)
         if meta_path.exists():
-            data = json.loads(meta_path.read_text())
+            data = json.loads(meta_path.read_text(), object_hook=_lossless_object_hook)
             vector_ids = data.get("vector_ids", [])
             metadata = data.get("metadata", {})
             persisted_dimension = data.get("dimension")
@@ -204,12 +249,10 @@ class FAISSIndex:
 
             # Check for vector count vs sidecar ID count mismatch
             if len(vector_ids) != index.ntotal:
-                warnings.warn(
-                    f"FAISS index vector count ({index.ntotal}) does not match "
-                    f"sidecar metadata ID count ({len(vector_ids)}). "
-                    "This may indicate data corruption or an incomplete save.",
-                    RuntimeWarning,
-                    stacklevel=2,
+                raise ProcessingError(
+                    f"Sidecar metadata vector count ({len(vector_ids)}) does not match "
+                    f"the binary FAISS index ntotal ({index.ntotal}). "
+                    "This indicates data corruption or an incomplete save."
                 )
         else:
             warnings.warn(
