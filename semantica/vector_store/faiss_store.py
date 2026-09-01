@@ -35,6 +35,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import base64
 import json
 import warnings
 from datetime import date, datetime
@@ -52,6 +53,7 @@ from ..utils.progress_tracker import get_progress_tracker
 class _LosslessJSONEncoder(json.JSONEncoder):
     """JSON encoder that preserves types that are not natively JSON-serializable.
 
+    - ``bytes`` are base64-encoded under a ``__bytes__`` wrapper.
     - sets are serialized as sorted lists under a ``__set__`` wrapper.
     - NumPy integers and floats are converted to native Python int/float.
     - NumPy arrays are converted to lists.
@@ -61,6 +63,8 @@ class _LosslessJSONEncoder(json.JSONEncoder):
     """
 
     def default(self, obj: Any) -> Any:
+        if isinstance(obj, bytes):
+            return {"__bytes__": base64.b64encode(obj).decode("ascii")}
         if isinstance(obj, set):
             return {"__set__": sorted(obj, key=str)}
         if isinstance(obj, np.integer):
@@ -80,15 +84,23 @@ class _LosslessJSONEncoder(json.JSONEncoder):
 
 def _lossless_object_hook(dct: Dict[str, Any]) -> Any:
     """Object hook for ``json.loads`` that restores types encoded by
-    ``_LosslessJSONEncoder``."""
-    if "__set__" in dct:
-        return set(dct["__set__"])
-    if "__datetime__" in dct:
-        return datetime.fromisoformat(dct["__datetime__"])
-    if "__date__" in dct:
-        return date.fromisoformat(dct["__date__"])
-    if "__uuid__" in dct:
-        return UUID(dct["__uuid__"])
+    ``_LosslessJSONEncoder``.
+
+    Tagged dicts are checked with an exact-schema guard (``len(dct) == 1``)
+    so that dicts sharing a key name with a wrapper but carrying additional
+    keys are passed through unchanged.
+    """
+    if len(dct) == 1:
+        if "__bytes__" in dct:
+            return base64.b64decode(dct["__bytes__"])
+        if "__set__" in dct:
+            return set(dct["__set__"])
+        if "__datetime__" in dct:
+            return datetime.fromisoformat(dct["__datetime__"])
+        if "__date__" in dct:
+            return date.fromisoformat(dct["__date__"])
+        if "__uuid__" in dct:
+            return UUID(dct["__uuid__"])
     return dct
 
 # Optional FAISS import
@@ -190,19 +202,19 @@ class FAISSIndex:
     def save(self, path: Union[str, Path]):
         """Save index to disk.
 
-        Writes the raw FAISS index binary, then serializes ``vector_ids``,
-        ``metadata``, ``dimension`` and ``index_type`` to a companion
-        ``.meta.json`` file so they can be restored on load.  The companion
-        file is written atomically (temp file + rename) so a partially
-        written JSON never leaves a corrupt state on disk.
+        Serializes ``vector_ids``, ``metadata``, ``dimension`` and
+        ``index_type`` *before* touching any files so that a serialization
+        error (e.g. unsupported metadata type) never leaves an orphaned
+        FAISS binary without its companion ``.meta.json``.
+
+        The companion file is written atomically (temp file + rename) so a
+        partially written JSON never leaves a corrupt state on disk.
         """
         if not FAISS_AVAILABLE:
             raise ProcessingError("FAISS not available")
 
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-
-        faiss.write_index(self.index, str(path))
 
         meta_path = _metadata_path(path)
         payload = json.dumps(
@@ -214,6 +226,9 @@ class FAISSIndex:
             },
             cls=_LosslessJSONEncoder,
         )
+
+        faiss.write_index(self.index, str(path))
+
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_meta = meta_path.with_suffix(meta_path.suffix + ".tmp")
         tmp_meta.write_text(payload)

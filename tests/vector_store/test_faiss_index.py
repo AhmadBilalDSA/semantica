@@ -74,6 +74,34 @@ def test_faiss_index_save_load_non_json_serializable_metadata(tmp_path):
         assert isinstance(loaded_meta["a_set"], set)
 
 
+def test_faiss_index_save_load_bytes_roundtrip(tmp_path):
+    """Save/load roundtrip preserves bytes metadata via base64 encoding."""
+    faiss = pytest.importorskip("faiss")
+    vectors = np.array(
+        [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+        dtype=np.float32,
+    )
+    ids = ["doc_1", "doc_2"]
+    metadata = [
+        {"blob": b"raw-embedding-hash"},
+        {"blob": b"\x00\x01\x02\xff"},
+    ]
+
+    index = FAISSIndex(faiss.IndexFlatL2(3), dimension=3)
+    index.add_vectors(vectors, ids=ids)
+    for vec_id, meta in zip(ids, metadata):
+        index.metadata[vec_id] = meta
+
+    index_path = tmp_path / "test_index.faiss"
+    index.save(index_path)
+
+    loaded = FAISSIndex.load(index_path, dimension=3)
+    assert loaded.metadata["doc_1"]["blob"] == b"raw-embedding-hash"
+    assert isinstance(loaded.metadata["doc_1"]["blob"], bytes)
+    assert loaded.metadata["doc_2"]["blob"] == b"\x00\x01\x02\xff"
+    assert isinstance(loaded.metadata["doc_2"]["blob"], bytes)
+
+
 def test_faiss_index_load_raises_on_vector_count_mismatch(tmp_path):
     """Loading an index with mismatched vector_ids count vs index.ntotal raises ProcessingError."""
     faiss = pytest.importorskip("faiss")
