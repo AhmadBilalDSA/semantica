@@ -898,7 +898,7 @@ class TestFencedCodeBlockPreservation(unittest.TestCase):
             "```\r\n"
             "After"
         )
-        result = self.normalizer.normalize_whitespace(text)
+        result = self.normalizer.normalize_whitespace(text, line_break_type="windows")
         self.assertNotIn("\r\r\n\n", result)
         self.assertNotIn("\r\r", result)
         self.assertIn("Before\r\n\r\n```", result)
@@ -918,7 +918,7 @@ class TestFencedCodeBlockPreservation(unittest.TestCase):
             "```\r\n"
             "outro"
         )
-        result = self.normalizer.normalize_whitespace(text)
+        result = self.normalizer.normalize_whitespace(text, line_break_type="windows")
         self.assertIn("pass\r\n\r\n\r\ndef second", result)
         self.assertNotIn("\r\r\n\n", result)
 
@@ -1051,7 +1051,7 @@ class TestTextNormalizerFencedCodeIntegration(unittest.TestCase):
             "```\r\n"
             "Outro"
         )
-        result = self.normalizer.normalize_text(text)
+        result = self.normalizer.normalize_text(text, line_break_type="windows")
         self.assertNotIn("\r\r\n\n", result)
         self.assertIn("pass\r\n\r\n\r\ndef second", result)
         self.assertIn("Intro\r\n\r\n```python", result)

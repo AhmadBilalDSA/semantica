@@ -496,8 +496,9 @@ class WhitespaceNormalizer:
         excess blank lines in prose.  Content inside fenced code blocks
         (delimited by ``` or ~~~) is preserved exactly as-is, including tabs,
         so that indentation is not lost.  Line endings are normalized to LF
-        internally for processing and restored to their original form at the
-        end, so ``\\r\\n`` input is never mangled into ``\\r\\r\\n\\n``.
+        internally for processing and converted to the requested line break
+        type at the end, so ``\\r\\n`` input is never mangled into
+        ``\\r\\r\\n\\n``.
 
         Args:
             text: Input text with potentially irregular whitespace
@@ -511,14 +512,6 @@ class WhitespaceNormalizer:
         """
         if not text:
             return ""
-
-        # Detect original line-endings so we can restore them at the end,
-        # avoiding regex mangling of \\r\\n into \\r\\r\\n\\n.
-        original_ending = "\n"
-        if "\r\n" in text:
-            original_ending = "\r\n"
-        elif "\r" in text and "\r\n" not in text:
-            original_ending = "\r"
 
         # Normalise to LF internally for all processing.
         text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -556,11 +549,8 @@ class WhitespaceNormalizer:
             if not segments[-1][0]:  # last segment is prose
                 result = result.rstrip()
 
-        # Restore original line endings.
-        if original_ending != "\n":
-            result = result.replace("\n", original_ending)
-
-        return result
+        # Restore requested line endings.
+        return self.handle_line_breaks(result, line_break_type)
 
     def handle_line_breaks(self, text: str, line_break_type: str = "unix") -> str:
         """
