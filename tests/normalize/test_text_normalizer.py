@@ -493,6 +493,58 @@ class TestFencedCodeBlockPreservation(unittest.TestCase):
         self.assertTrue(result.endswith("```   "),
                         f"Trailing indentation stripped; got: {result!r}")
 
+    def test_leading_newline_before_indented_fence_preserves_indent(self):
+        """A leading newline before an indented fence must not eat fence indent."""
+        text = "\n    ```python\n    code\n    ```"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertTrue(result.startswith("    ```python"),
+                        f"Opening-fence indentation stripped; got: {result!r}")
+
+    def test_inline_backtick_code_not_parsed_as_fence(self):
+        """Inline code like ```foo``` must not be parsed as an unclosed block."""
+        text = "Before\n```foo```\n\n\n   After   more\n"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("```foo```", result)
+        self.assertIn("After more", result)
+
+    def test_inline_tilde_code_not_parsed_as_fence(self):
+        """Inline code like ~~~foo~~~ must not be parsed as an unclosed block."""
+        text = "Before\n~~~foo~~~\n\n\n   After   more\n"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("~~~foo~~~", result)
+        self.assertIn("After more", result)
+
+    def test_indented_fence_in_docstring_does_not_close_block(self):
+        """An indented ``` inside a docstring must not close the code block."""
+        text = (
+            "```python\n"
+            "def foo():\n"
+            '    """\n'
+            "    Example:\n"
+            "        ```\n"
+            "        contents\n"
+            "        ```\n"
+            '    """\n'
+            "```\n"
+            "end"
+        )
+        result = self.normalizer.normalize_whitespace(text)
+        # The docstring content stays inside the code block.
+        self.assertIn(
+            "Example:\n        ```\n        contents\n        ```\n    \"\"\"",
+            result,
+        )
+        # The block is still closed by the unindented closing fence and
+        # the trailing prose is normalized.
+        self.assertIn("```\nend", result)
+
+    def test_docstring_fence_within_small_indent_delta_closes(self):
+        """A closer indented within 3 spaces of the opener is accepted."""
+        text = "   ```python\ncode\n   ```\nend"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertIn("code", result)
+        self.assertIn("```\nend", result)
+
     def test_real_world_python_example(self):
         """Full realistic example with prose, code, and nested lists."""
         text = (
@@ -769,6 +821,15 @@ class TestFencedCodeBlockPreservation(unittest.TestCase):
         self.assertIn("    code", result)
         self.assertIn("After", result)
         self.assertNotIn("\n\n\n", result)
+        # Whitespace-only blank lines collapse to a single blank line after
+        # the closing fence.
+        self.assertEqual("\n```\n\nAfter", result[result.index("code") + len("code"):])
+
+    def test_whitespace_only_blank_lines_inside_prose_collapse(self):
+        """Whitespace-only blank lines in prose collapse like empty lines."""
+        text = "line1\n   \n  \t  \nline2"
+        result = self.normalizer.normalize_whitespace(text)
+        self.assertEqual("line1\n\nline2", result)
 
     def test_four_backtick_fence(self):
         """Four-backtick fences work correctly."""
